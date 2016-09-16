@@ -5,68 +5,82 @@ import os
 import RPi.GPIO as GPIO
 import random
 from multiprocessing import Process
+from nrf24 import NRF24
+import spidev
+
 GPIO.setmode(GPIO.BCM)
-GPIO.setwarnings(False)
-Pumpkin = 17 
-light = 18
-TRIG = 23
-ECHO = 24
-try:
-	GPIO.cleanup()
-except:
-	pass
+
+Pumpkin = 17 #pumkin gpio pin on relay
+light = 18	#light gpio pin on relay
+
+RF_CH=0x53 #comunnication channel
+
 
 on = False
 off = True
-GPIO.setup(TRIG,GPIO.OUT)
-GPIO.setup(ECHO,GPIO.IN)
+
+filenameLog = "SmartPmpkin.log"
+
+
 GPIO.setup(light,GPIO.OUT)
 GPIO.setup(Pumpkin,GPIO.OUT)
 GPIO.output(light, off)
 GPIO.output(Pumpkin, on)
-soundfolder = "/home/pi/halloween/sounds"
+
+soundfolder = "/home/pi/halloween/sounds" #where the sound animations 
 songs = []
 debug=False
 doorbell = soundfolder + os.sep+"0.wav"
 gost = soundfolder + os.sep+"go.wav"
 doorrange = soundfolder + os.sep+"drange.wav"
 
+
+
+#read info from songs to play
 for i in range(1, 7):
-        songs.append(soundfolder+os.sep+str(i)+".wav")
-tempos = [16,9,10,6,10,7]
+        songs.append(soundfolder+os.sep+str(i)+".wav") #add the songs names to a  raaay to random
+tempos = [16,9,10,6,10,7] #lenght of esch song
 nsongs = len(songs)
 
-def osErro():
+def log(exception):
+   	date = str(datetime.datetime.now())
+   	f=open(filenameLog,"a")
+   	f.write(date+":"+str(exception)+"\n")
+	f.close()
+
+
+def osErro(erro="---"): #to do when appens an error
 	GPIO.output(light, off)
 	GPIO.output(Pumpkin, on)
-	os.system("sudo reboot")
+	GPIO.cleanup()
+	log(erro)
+	os.system("sudo reboot") #this reboot the pi (the python script should start at boot)
 
-def getdistance2(TRIG,ECHO):
-	GPIO.output(TRIG, False)
-	GPIO.output(TRIG, True)
-	while GPIO.input(ECHO)==0:
-		pulse_start = time.time()
-	while GPIO.input(ECHO)==1:
-		pulse_end = time.time()
-	pulse_duration = pulse_end - pulse_start
-	distance = pulse_duration * 17150
-	return round(distance, 2)
+def setupReciver():
+        pipes = [[0xf0, 0xf0, 0xf0, 0xf0, 0xe1], [0xf0, 0xf0, 0xf0, 0xf0, 0xd2]]
+        radioN = NRF24()
+        radioN.begin(0, 0,25,18) #set gpio 25 as CE pin
+        radioN.setRetries(15,15)
+        radioN.setPayloadSize(32)
+        radioN.setChannel(RF_CH)
+        radioN.setDataRate(NRF24.BR_250KBPS)
+        radioN.setPALevel(NRF24.PA_MAX)
+        radioN.setCRCLength(NRF24.CRC_8);
+        radioN.setAutoAck(1)
+		radioN.enableDynamicAck()
+        radioN.openWritingPipe(pipes[0])
+        radioN.openReadingPipe(1, pipes[1])
 
-def getdistance(TRIG,ECHO):
-	time.sleep(0.1)
-	GPIO.output(TRIG,1)
-	time.sleep(0.00001)
-	GPIO.output(TRIG,0)
-	while GPIO.input(ECHO)==0:
-		pass
-	start = time.time()
-	while GPIO.input(ECHO)==1:
-		pass
-	stop= time.time()
-	ret= (stop-start)*17000
-	return ret
+        radioN.startListening()
+        radioN.stopListening()
 
+        radioN.startListening()
+        return radioN
 
+try:
+	radio= setupReciver()
+except Exception as e:
+	osErro(erro=e)
 
 def SoundVar(s1,s2):
 	if 0!=os.system("aplay " + songs[s1]): osErro()
@@ -159,6 +173,21 @@ def doAnimation(i1,i2):
 	Lightanimation(tempos[i1]+tempos[i2]+1)
 	p.join()
 
+
+#Code to recive a message from arduino 
+
+def reciveFromRemote():
+	#outT,outH,outL,outP,outR,
+    pipe = [0]
+	print "Espera receber"
+    	while not radio.available(pipe, True):
+        	time.sleep(1000/100000.0)
+	recv_buffer = []
+    	radio.read(recv_buffer)
+    	out = ''.join(chr(i) for i in recv_buffer)
+    	print "Recived: " +out
+	return out
+
 def main():
 
 	play = False
@@ -180,35 +209,19 @@ def main():
 	time.sleep(2)
 	i=0
 	while True:
-		if debug:
-			dist = 70
-		else:
-#			print "Vou ler Dist"
-			dist = getdistance(TRIG,ECHO)
-#			print "Distancia: " + str(dist)
-		if dist>15 and dist<150:
-			soundi = i % nsongs
+		reciveFromRemote() #espera receber as mensagem do arduino quando recebe pode fazer animacao
+		soundi = i % nsongs
+		soundi2 = random.randint(1,len(songs)-1)
+		while soundi == soundi2:
 			soundi2 = random.randint(1,len(songs)-1)
-			while soundi == soundi2:
-				soundi2 = random.randint(1,len(songs)-1)
-			play = True
-			doAnimation(soundi,soundi2)
-			play =False
-			i+=1
-			time.sleep(10) #se algem ativar o sensor fica inativo por 2min	
-		else:
-			time.sleep(5) 
+		play = True
+		doAnimation(soundi,soundi2)
+		play =False
+		i+=1
 
 
 if __name__ == '__main__':
-	i=0
-	while(i<5):
-		i+=1
-		print "Dist: " +str(getdistance(TRIG,ECHO))
-#		v=raw_input()
-#	while True:
-#		try:
-#			main()
-#		except:
-#			print "ERROR"
-	main()
+	try:
+		main()
+	except Exception as e:
+		osErro(erro=e)
