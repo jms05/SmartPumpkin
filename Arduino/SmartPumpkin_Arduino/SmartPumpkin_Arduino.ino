@@ -7,7 +7,10 @@
 #define LIMT_INF 45
 #define LIMT_SUP 120
 
+#define CH 0x53
+#define SLLEPCYCLE 6
 //for nrf24 debug
+/*
 int serial_putc( char c, FILE * ) 
 {
   Serial.write( c );
@@ -19,7 +22,7 @@ void printf_begin(void)
 {
   fdevopen( &serial_putc, 0 );
 }
-
+*/
 //nRF24 set the pin 9 to CE and 10 to CSN/SS
 // Cables are:
 //     SS       -> 10
@@ -37,7 +40,7 @@ const uint64_t pipes[2] = { 0xF0F0F0F0E1LL,0xF0F0F0F0D2LL };
 
 void setupRF24(){
   radio.begin();
-  radio.setChannel(0x4c);
+  radio.setChannel(CH);
   radio.setAutoAck(1);
   radio.enableDynamicAck();
   radio.setRetries(15,15);
@@ -49,26 +52,27 @@ void setupRF24(){
   radio.openReadingPipe(1,pipes[0]);
   radio.openWritingPipe(pipes[1]);
   radio.printDetails(); //for Debugging
-  //radio.powerDown();
+  radio.powerDown();
   delay(5);
 }
 
 void setup() {
+  // Serial.begin(9600);
   pinMode(TRIG, OUTPUT);
   pinMode(ECHO, INPUT);
-  Serial.begin(9600);
-  //sensors
- // pinMode(PHOTOPIN, INPUT);
-  //pinMode(RAINPIN, INPUT);
-  //dht.begin();
   //radio
   setupRF24();
-  //vars
-  //setup_vars();
 }
 
+void sendData(){
+  radio.powerUp();
+  delay(50);
+   bool ok = radio.write(&SendPayload,strlen(SendPayload));
+  delay(50);
+  radio.powerDown();
+}
 
-void loop() {
+long mesureDistance(){
   long duration, distance;
   digitalWrite(TRIG, LOW);  // Added this line
   delayMicroseconds(2); // Added this line
@@ -77,15 +81,24 @@ void loop() {
   digitalWrite(TRIG, LOW);
   duration = pulseIn(ECHO, HIGH);
   distance = (duration/2) / 29.1;
-  if (distance >= 200 || distance <= 0){
+  return distance;
+}
+
+void loop() {
+  long distance = mesureDistance();
+  /*if (distance >= 200 || distance <= 0){
     Serial.println("Out of range");
   }
   else {
     Serial.print(distance);
     Serial.println(" cm");
-  }
+  }*/
   if (distance >= LIMT_INF && distance <= LIMT_SUP){
-    bool ok = radio.write(&SendPayload,strlen(SendPayload));
+    sendData();
+    for(int i=0;i<SLLEPCYCLE ;i++){
+      delay(30000);
+    }
+  }else{
+    delay(1000);
   }
-  delay(500);
 }
