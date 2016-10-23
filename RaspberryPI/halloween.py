@@ -7,11 +7,12 @@ import random
 from multiprocessing import Process
 from nrf24 import NRF24
 import spidev
+import datetime
 
 GPIO.setmode(GPIO.BCM)
 
 Pumpkin = 17 #pumkin gpio pin on relay
-light = 18	#light gpio pin on relay
+light = 27	#light gpio pin on relay
 
 RF_CH=0x53 #comunnication channel
 
@@ -26,8 +27,8 @@ GPIO.setup(light,GPIO.OUT)
 GPIO.setup(Pumpkin,GPIO.OUT)
 GPIO.output(light, off)
 GPIO.output(Pumpkin, on)
-
-soundfolder = "/home/pi/halloween/sounds" #where the sound animations 
+soundfolder = "sounds"
+#soundfolder = "/home/pi/halloween/sounds" #where the sound animations 
 songs = []
 debug=False
 doorbell = soundfolder + os.sep+"0.wav"
@@ -52,7 +53,7 @@ def log(exception):
 def osErro(erro="---"): #to do when appens an error
 	GPIO.output(light, off)
 	GPIO.output(Pumpkin, on)
-	GPIO.cleanup()
+#	GPIO.cleanup()
 	log(erro)
 	os.system("sudo reboot") #this reboot the pi (the python script should start at boot)
 
@@ -67,7 +68,7 @@ def setupReciver():
         radioN.setPALevel(NRF24.PA_MAX)
         radioN.setCRCLength(NRF24.CRC_8);
         radioN.setAutoAck(1)
-		radioN.enableDynamicAck()
+	radioN.enableDynamicAck()
         radioN.openWritingPipe(pipes[0])
         radioN.openReadingPipe(1, pipes[1])
 
@@ -81,7 +82,7 @@ try:
 	radio= setupReciver()
 except Exception as e:
 	osErro(erro=e)
-
+radio.printDetails()
 def SoundVar(s1,s2):
 	if 0!=os.system("aplay " + songs[s1]): osErro()
         time.sleep(0.5)
@@ -178,7 +179,7 @@ def doAnimation(i1,i2):
 
 def reciveFromRemote():
 	#outT,outH,outL,outP,outR,
-    pipe = [0]
+	pipe = [0]
 	print "Espera receber"
     	while not radio.available(pipe, True):
         	time.sleep(1000/100000.0)
@@ -187,6 +188,16 @@ def reciveFromRemote():
     	out = ''.join(chr(i) for i in recv_buffer)
     	print "Recived: " +out
 	return out
+
+def canPlay(last,novo):
+	gap = 6*30
+	if(last+gap<novo):
+		return True
+	return False
+
+def tempo():
+	t = int(round(time.time()))
+	return t
 
 def main():
 
@@ -208,17 +219,24 @@ def main():
 	signal.alarm(1)
 	time.sleep(2)
 	i=0
+	lastR=0
 	while True:
+		print "True"
 		reciveFromRemote() #espera receber as mensagem do arduino quando recebe pode fazer animacao
-		soundi = i % nsongs
-		soundi2 = random.randint(1,len(songs)-1)
-		while soundi == soundi2:
+		actualR = tempo()
+		if canPlay(lastR,actualR):
+			print "OK"
+			lastR = actualR
+			soundi = i % nsongs
 			soundi2 = random.randint(1,len(songs)-1)
-		play = True
-		doAnimation(soundi,soundi2)
-		play =False
-		i+=1
-
+			while soundi == soundi2:
+				soundi2 = random.randint(1,len(songs)-1)
+			play = True
+			doAnimation(soundi,soundi2)
+			play =False
+			i+=1
+		else:
+			print "Muito Seguido"
 
 if __name__ == '__main__':
 	try:
